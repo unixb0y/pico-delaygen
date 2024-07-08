@@ -4,6 +4,24 @@
 #include "hardware/pio.h"
 #include "square.pio.h"
 
+// Define for debugging; will have to handle all the extra serial prints, though
+//#define DEBUG
+#ifdef DEBUG
+#define DEBUG_PRINT(fmt, args...) printf(fmt, ## args)
+#else
+#define DEBUG_PRINT(fmt, args...) /* Don't do anything in release builds */
+#endif
+
+// Set to 1 if using Pico Debug 'n Dump PCB
+#define USE_PDND 0
+#if USE_PDND
+    #define PIN_IN 18
+    #define PIN_OUT 19
+#else
+    #define PIN_IN 9
+    #define PIN_OUT 6
+#endif
+
 int oc(uint clk_interval);
 
 /* --- pin mappings --- */
@@ -11,10 +29,10 @@ int oc(uint clk_interval);
 /* GPIO6 = glitch out   */
 /* GPIO9 = trigger in   */
 static const uint reset_output_pin = 2;
-static const uint trigger_input_pin = 9;
-static const uint trigger_output_pin = 6;
+static const uint trigger_input_pin = PIN_IN;
+static const uint trigger_output_pin = PIN_OUT;
 static const uint led_pin = PICO_DEFAULT_LED_PIN;
-bool led_on = false;
+bool led_on = true;
 
 // number of clock cycles to delay glitch
 uint delay_length = 100;
@@ -38,14 +56,23 @@ void irq0_callback() {
 
 void irq1_callback() {
     waiting_for_pulse = false;
+    // glitching finished, turn off LED
+    led_on = false;
+    gpio_put(led_pin, false);
 }
 
-inline uint32_t Reverse32(uint32_t value) 
-{
+inline uint32_t Reverse32(uint32_t value) {
     return (((value & 0x000000FF) << 24) |
             ((value & 0x0000FF00) <<  8) |
             ((value & 0x00FF0000) >>  8) |
             ((value & 0xFF000000) >> 24));
+}
+
+void reset_glitcher() {
+    led_on = false;
+    gpio_put(led_pin, false);
+    waiting_for_pulse = false;
+    pio_sm_set_enabled(pio, sm, false);
 }
 
 void toggle_led() {
@@ -58,7 +85,7 @@ void set_glitch_pulse() {
     uint32_t glitch_len = 0;
     fread(&glitch_len, sizeof(char), 4, stdin);
     glitch_len = Reverse32(glitch_len);
-    //printf("Got pulse length: %lu\n", glitch_len); 
+    DEBUG_PRINT("Got pulse length: %lu\n", glitch_len); 
     glitch_length = glitch_len;
 }
 
@@ -67,12 +94,15 @@ void set_delay() {
     uint32_t delay_len = 0;
     fread(&delay_len, sizeof(char), 4, stdin);
     delay_len = Reverse32(delay_len);
-    //printf("Got delay length: %lu\n", delay_len); 
+    DEBUG_PRINT("Got delay length: %lu\n", delay_len); 
     delay_length = delay_len;
 }
 
 // u8 command; just go ahead and arm the PIO
 void glitch() {
+    // glitching starting, turn on LED
+    led_on = true;
+    gpio_put(led_pin, true);
     waiting_for_pulse = false;
 
     // Get first free state machine in PIO 0
@@ -101,7 +131,7 @@ uint8_t get_status() {
     // pin in charged = 0b0010
     // timeout active = 0b0100
     // hvp internal   = 0b1000
-    //printf("Waiting for pulse? %d\n", waiting_for_pulse);
+    DEBUG_PRINT("Waiting for pulse? %d\n", waiting_for_pulse);
     if (waiting_for_pulse) {
         return 2;
     }
@@ -115,8 +145,10 @@ int read_cmd() {
     while(1) {
         c = getchar();
         if (c == 0) continue;
-        //printf("Got char: %d\n", c);
+        DEBUG_PRINT("Got char: %d\n", c);
         switch(c) {
+            case 64:
+                reset_glitcher();
             case 65:
                 toggle_led();
                 break;
@@ -145,9 +177,10 @@ int main() {
 
     stdio_init_all();
     while (!tud_cdc_connected()) { sleep_ms(100);  }
-    printf("USB connected.\n");
+    DEBUG_PRINT("USB connected.\n");
 
-    oc(2); 
+    // Uncomment for overclocking to 400MHz
+    //oc(2); 
 
     irq_set_exclusive_handler(PIO0_IRQ_0, irq0_callback);
     irq_set_exclusive_handler(PIO0_IRQ_1, irq1_callback);
@@ -156,6 +189,6 @@ int main() {
     pio0->inte0 = PIO_IRQ0_INTE_SM0_BITS;
     pio0->inte1 = PIO_IRQ0_INTE_SM1_BITS;
 
-    printf("Starting program now...\n");
+    DEBUG_PRINT("Starting program now...\n");
     read_cmd();
 }
