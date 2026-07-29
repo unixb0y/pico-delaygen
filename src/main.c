@@ -17,21 +17,29 @@
 #if USE_PDND
     #define PIN_IN 18
     #define PIN_OUT 19
+    #define ARMED 15
+    #define TRIGGERED 16
+    #define GLITCHED 17
+    #define RESET_EN 2
+    #define PWR_EN 3
 #else
-    #define PIN_IN 9
-    #define PIN_OUT 6
+    #define PIN_IN 19
+    #define PIN_OUT 20
+    #define ARMED 16
+    #define TRIGGERED 17
+    #define GLITCHED 18
+    #define RESET_EN 21
+    #define PWR_EN 22
 #endif
 
 int oc(uint clk_interval);
 
 /* --- pin mappings --- */
-/* GPIO2 = reset        */
-/* GPIO6 = glitch out   */
-/* GPIO9 = trigger in   */
-static const uint reset_output_pin = 2;
+static const uint led_pin = PICO_DEFAULT_LED_PIN;
+static const uint pwr_output_pin = PWR_EN;
+static const uint reset_output_pin = RESET_EN;
 static const uint trigger_input_pin = PIN_IN;
 static const uint trigger_output_pin = PIN_OUT;
-static const uint led_pin = PICO_DEFAULT_LED_PIN;
 bool led_on = true;
 
 // number of clock cycles to delay glitch
@@ -78,6 +86,15 @@ void reset_glitcher() {
 void toggle_led() {
     led_on = !led_on;
     gpio_put(led_pin, led_on);
+}
+
+void power_cycle() {
+    gpio_put(reset_output_pin, true);
+    gpio_put(pwr_output_pin, false);
+    sleep_ms(1000);
+    gpio_put(reset_output_pin, false);
+    gpio_put(pwr_output_pin, true);
+    sleep_ms(100);
 }
 
 // u32 command, i.e. read 4 more bytes
@@ -152,6 +169,9 @@ int read_cmd() {
             case 65:
                 toggle_led();
                 break;
+            case 66:
+                power_cycle();
+                break;
             case 67:
                 set_glitch_pulse();
                 break;
@@ -170,10 +190,13 @@ int read_cmd() {
 
 int main() {
     gpio_init(led_pin);
+    gpio_init(pwr_output_pin);
     gpio_init(reset_output_pin);
     gpio_set_dir(led_pin, GPIO_OUT);
+    gpio_set_dir(pwr_output_pin, GPIO_OUT);
     gpio_set_dir(reset_output_pin, GPIO_OUT);
-    gpio_put(reset_output_pin, true);
+    gpio_put(reset_output_pin, false);
+    gpio_put(pwr_output_pin, true);
 
     stdio_init_all();
     while (!tud_cdc_connected()) { sleep_ms(100);  }
