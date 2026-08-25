@@ -21,6 +21,10 @@ cmake --build build
 * Trigger (Input): Pin 9
 * Glitch Pulse (Output): Pin 6
 
+# Limitations
+* Minimum glitch width: 3 cycles
+* Minimum glitch delay: 9 cycles
+
 ## Command list
 Fully compatible with FPGA-based [chipfail-glitcher](https://github.com/unixb0y/chipfail-glitcher), but not all commands are functional yet. 
 ```
