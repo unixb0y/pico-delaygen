@@ -1,0 +1,60 @@
+.program square
+
+entry:
+    pull block          ; get delay from fifo, blocking
+    out x, 32           ; move number to x
+    pull block          ; get pulse width from fifo, blocking
+    out y, 32           ; move number to y
+    irq clear 0         ; clear irq before starting
+
+;; Signal that we're now in the waiting phase
+irq set 0
+irq clear 0
+
+wait 0 pin 0;
+wait 1 pin 0;
+
+lp0:                    ; delay for x cycles
+    jmp x-- lp0
+    set pins, 1         ; turn glitch pin on
+
+lp1:
+    jmp y-- lp1         ; delay for y cycles
+
+set pins, 0             ; Turn output pin off
+
+;; Execution finished, unset PIO0_IRQ_0
+;; to signal that PIO state machine is done
+irq set 1
+irq clear 1             
+
+% c-sdk {
+
+// Helper function (for use in C program) to initialize this PIO program
+void square_program_init(PIO pio, uint sm, uint offset, uint trigger_in, uint trigger_out) {
+
+    // Sets up state machine and wrap target. This function is automatically
+    // generated in square.pio.h.
+    pio_sm_config c = square_program_get_default_config(offset);
+
+    // Allow PIO to control GPIO pin (as output)
+    pio_gpio_init(pio, trigger_out);
+    gpio_set_drive_strength(trigger_out, GPIO_DRIVE_STRENGTH_12MA);
+
+    // Connect pin to IN pin (control with 'in' instruction)
+    sm_config_set_in_pins(&c, trigger_in);
+    // Connect pin to SET pin (control with 'set' instruction)
+    sm_config_set_set_pins(&c, trigger_out, 1);
+
+    // Set the pin direction to output (in PIO)
+    pio_sm_set_consecutive_pindirs(pio, sm, trigger_in, 1, false);
+    pio_sm_set_consecutive_pindirs(pio, sm, trigger_out, 1, true);
+    
+    // Load configuration and jump to start of the program
+    pio_sm_init(pio, sm, offset, &c);
+
+    // Start running our PIO program in the state machine
+    pio_sm_set_enabled(pio, sm, true);
+}
+
+%}
