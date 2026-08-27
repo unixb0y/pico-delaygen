@@ -17,8 +17,10 @@
 #define SINGLE_GLITCH 1
 
 // Set to 1 if using Pico Debug 'n Dump PCB
+// Set to 2 if using my custom timing board
+// Set to 0 for regular Pico operation
 #define USE_PDND 0
-#if USE_PDND
+#if USE_PDND == 1
     #define PIN_IN 18
     #define PIN_OUT 19
     #define ARMED 15
@@ -26,9 +28,17 @@
     #define GLITCHED 17
     #define RESET_EN 2
     #define PWR_EN 3
-#else
+#elif USE_PDND == 2
     #define PIN_IN 19
     #define PIN_OUT 20
+    #define ARMED 16
+    #define TRIGGERED 17
+    #define GLITCHED 18
+    #define RESET_EN 21
+    #define PWR_EN 22
+#else
+    #define PIN_IN 9
+    #define PIN_OUT 6
     #define ARMED 16
     #define TRIGGERED 17
     #define GLITCHED 18
