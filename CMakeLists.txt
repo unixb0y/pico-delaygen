@@ -44,6 +44,7 @@ pico_enable_stdio_uart(${PROJECT_NAME} 0)
 # Create C header file with the name <pio program>.pio.h
 pico_generate_pio_header(${PROJECT_NAME}  
     ${CMAKE_CURRENT_LIST_DIR}/src/square.pio
+    ${CMAKE_CURRENT_LIST_DIR}/src/square2.pio
 )
 
 # create map/bin/hex/uf2 file etc.

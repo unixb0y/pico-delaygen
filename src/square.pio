@@ -1,4 +1,4 @@
-.program square
+.program glitch1
 
 entry:
     pull block          ; get delay from fifo, blocking
@@ -31,11 +31,11 @@ irq clear 1
 % c-sdk {
 
 // Helper function (for use in C program) to initialize this PIO program
-void square_program_init(PIO pio, uint sm, uint offset, uint trigger_in, uint trigger_out) {
+void init_single_glitch(PIO pio, uint sm, uint offset, uint trigger_in, uint trigger_out) {
 
     // Sets up state machine and wrap target. This function is automatically
     // generated in square.pio.h.
-    pio_sm_config c = square_program_get_default_config(offset);
+    pio_sm_config c = glitch1_program_get_default_config(offset);
 
     // Allow PIO to control GPIO pin (as output)
     pio_gpio_init(pio, trigger_out);

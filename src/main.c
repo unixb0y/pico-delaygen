@@ -3,6 +3,7 @@
 #include <tusb.h>
 #include "hardware/pio.h"
 #include "square.pio.h"
+#include "square2.pio.h"
 
 // Define for debugging; will have to handle all the extra serial prints, though
 //#define DEBUG
@@ -11,6 +12,9 @@
 #else
 #define DEBUG_PRINT(fmt, args...) /* Don't do anything in release builds */
 #endif
+
+// Decide whether to use single or double glitch setup
+#define SINGLE_GLITCH 1
 
 // Set to 1 if using Pico Debug 'n Dump PCB
 #define USE_PDND 0
@@ -117,6 +121,9 @@ void set_delay() {
 
 // u8 command; just go ahead and arm the PIO
 void glitch() {
+    // configure single or double glitch here (false for double)
+    bool single_glitch = false;
+
     // glitching starting, turn on LED
     led_on = true;
     gpio_put(led_pin, true);
@@ -128,11 +135,19 @@ void glitch() {
     // Add PIO program to PIO instruction memory. SDK will find location and
     // return with the memory offset of the program.
     if (offset == 0xFFFFFFFF) { // Only load the program once
-        offset = pio_add_program(pio, &square_program);
+        #if SINGLE_GLITCH
+            offset = pio_add_program(pio, &glitch1_program);
+        #else
+            offset = pio_add_program(pio, &glitch2_program);
+        #endif
     }
 
     // Initialize the program using the helper function in our .pio file
-    square_program_init(pio, sm, offset, trigger_input_pin, trigger_output_pin);
+    #if SINGLE_GLITCH
+        init_single_glitch(pio, sm, offset, trigger_input_pin, trigger_output_pin);
+    #else
+        init_double_glitch(pio, sm, offset, trigger_input_pin, trigger_output_pin);
+    #endif
 
     // Pass the glitch length through FIFO; deduct 2 lost cycles
     pio_sm_put_blocking(pio, sm, delay_length-8);
