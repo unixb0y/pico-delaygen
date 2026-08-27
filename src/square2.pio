@@ -2,26 +2,47 @@
 
 entry:
     pull block          ; get delay from fifo, blocking
-    out x, 32           ; move number to x
+    out x, 32           ; x = value0 (lp0 count)
     pull block          ; get pulse width from fifo, blocking
-    out y, 32           ; move number to y
+    out y, 32           ; y = value1 (lp1 count)
+
+    pull block          ; get second delay from fifo, blocking
+    out isr, 32         ; isr = value2 (lp2 count, reloaded into y later)
+    pull block          ; get second pulse width from fifo, blocking
+                        ; osr = value3 (lp3 count, reloaded into x later)
+
     irq clear 0         ; clear irq before starting
 
 ;; Signal that we're now in the waiting phase
 irq set 0
 irq clear 0
 
+;; FIRST GLITCH
 wait 0 pin 0;
 wait 1 pin 0;
 
-lp0:                    ; delay for x cycles
-    jmp x-- lp0
+lp0:
+    jmp x-- lp0         ; delay for x cycles (value0)
     set pins, 1         ; turn glitch pin on
 
 lp1:
-    jmp y-- lp1         ; delay for y cycles
+    jmp y-- lp1         ; delay for y cycles (value1)
+set pins, 0             ; turn glitch pin off
 
-set pins, 0             ; Turn output pin off
+;; SECOND GLITCH
+wait 0 pin 0;
+wait 1 pin 0;
+
+mov x, isr              ; x = isr
+mov y, osr              ; y = isr
+
+lp2:
+   jmp x-- lp2          ; delay for x cycles (value2)
+   set pins, 1          ; turn glitch pin on
+
+lp3:
+   jmp y-- lp3          ; delay for y cycles (value3)
+set pins, 0             ; turn glitch pin off
 
 ;; Execution finished, unset PIO0_IRQ_0
 ;; to signal that PIO state machine is done
