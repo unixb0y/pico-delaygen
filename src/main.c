@@ -57,9 +57,11 @@ static const uint trigger_output_pin = PIN_OUT;
 bool led_on = true;
 
 // number of clock cycles to delay glitch
-uint delay_length = 100;
+uint delay_length = 0;
+uint delay_length2 = 0;
 // number of clock cycles to pulse glitch
-uint glitch_length = 100;
+uint glitch_length = 0;
+uint glitch_length2 = 0;
 // avoids loading PIO assembly multiple times
 static uint offset = 0xFFFFFFFF;
 
@@ -80,6 +82,10 @@ void irq1_callback() {
     waiting_for_pulse = false;
     // glitching finished, turn off LED
     led_on = false;
+    delay_length = 0;
+    delay_length2 = 0;
+    glitch_length = 0;
+    glitch_length2 = 0;
     gpio_put(led_pin, false);
 }
 
@@ -117,7 +123,13 @@ void set_glitch_pulse() {
     fread(&glitch_len, sizeof(char), 4, stdin);
     glitch_len = Reverse32(glitch_len);
     DEBUG_PRINT("Got pulse length: %lu\n", glitch_len); 
+    #if SINGLE_GLITCH
     glitch_length = glitch_len;
+    glitch_length2 = 0;
+    #else
+    if (glitch_length > 0) glitch_length2 = glitch_len;
+    else glitch_length = glitch_len;
+    #endif
 }
 
 // u32 command, i.e. read 4 more bytes
@@ -126,13 +138,29 @@ void set_delay() {
     fread(&delay_len, sizeof(char), 4, stdin);
     delay_len = Reverse32(delay_len);
     DEBUG_PRINT("Got delay length: %lu\n", delay_len); 
+    #if SINGLE_GLITCH
     delay_length = delay_len;
+    delay_length2 = 0;
+    #else
+    if (delay_length > 0) delay_length2 = delay_len;
+    else delay_length = delay_len;
+    #endif
 }
 
 // u8 command; just go ahead and arm the PIO
 void glitch() {
-    // configure single or double glitch here (false for double)
-    bool single_glitch = false;
+    // check that parameters have been set
+    #if SINGLE_GLITCH
+    if (delay_length < 8 || glitch_length < 2) {
+        DEBUG_PRINT("Delay or Glitch Length not set.\n");
+        return;
+    }
+    #else
+    if (delay_length < 8 || delay_length2 < 8 || glitch_length < 2 || glitch_length2 < 2) {
+        DEBUG_PRINT("Delay or Glitch Length not set.\n");
+        return;
+    }
+    #endif
 
     // glitching starting, turn on LED
     led_on = true;
@@ -160,8 +188,15 @@ void glitch() {
     #endif
 
     // Pass the glitch length through FIFO; deduct 2 lost cycles
+    #if SINGLE_GLITCH
     pio_sm_put_blocking(pio, sm, delay_length-8);
     pio_sm_put_blocking(pio, sm, glitch_length-2);
+    #else
+    pio_sm_put_blocking(pio, sm, delay_length-8);
+    pio_sm_put_blocking(pio, sm, glitch_length-2);
+    pio_sm_put_blocking(pio, sm, delay_length2-8);
+    pio_sm_put_blocking(pio, sm, glitch_length2-2);
+    #endif
 
     // Unclaim state machine after the run
     pio_sm_unclaim(pio, sm);
