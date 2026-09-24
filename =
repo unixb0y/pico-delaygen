@@ -3,65 +3,25 @@
 #include <tusb.h>
 #include "hardware/pio.h"
 #include "square.pio.h"
-#include "square2.pio.h"
-
-// Define for debugging; will have to handle all the extra serial prints, though
-//#define DEBUG
-#ifdef DEBUG
-#define DEBUG_PRINT(fmt, args...) printf(fmt, ## args)
-#else
-#define DEBUG_PRINT(fmt, args...) /* Don't do anything in release builds */
-#endif
-
-// Decide whether to use single or double glitch setup
-#define SINGLE_GLITCH 1
-
-// Set to 1 if using Pico Debug 'n Dump PCB
-// Set to 2 if using my custom timing board
-// Set to 0 for regular Pico operation
-#define USE_PDND 0
-#if USE_PDND == 1
-    #define PIN_IN 18
-    #define PIN_OUT 19
-    #define ARMED 15
-    #define TRIGGERED 16
-    #define GLITCHED 17
-    #define RESET_EN 2
-    #define PWR_EN 3
-#elif USE_PDND == 2
-    #define PIN_IN 19
-    #define PIN_OUT 20
-    #define ARMED 16
-    #define TRIGGERED 17
-    #define GLITCHED 18
-    #define RESET_EN 21
-    #define PWR_EN 22
-#else
-    #define PIN_IN 9
-    #define PIN_OUT 6
-    #define ARMED 16
-    #define TRIGGERED 17
-    #define GLITCHED 18
-    #define RESET_EN 21
-    #define PWR_EN 22
-#endif
 
 int oc(uint clk_interval);
 
 /* --- pin mappings --- */
+/* GPIO2 = reset        */
+/* GPIO6 = glitch out   */
+/* GPIO9 = trigger in   */
+static const uint reset_output_pin = 2;
+//static const uint trigger_input_pin = 9;//18;
+static const uint trigger_input_pin = 18;
+//static const uint trigger_output_pin = 6;//19;
+static const uint trigger_output_pin = 19;
 static const uint led_pin = PICO_DEFAULT_LED_PIN;
-static const uint pwr_output_pin = PWR_EN;
-static const uint reset_output_pin = RESET_EN;
-static const uint trigger_input_pin = PIN_IN;
-static const uint trigger_output_pin = PIN_OUT;
 bool led_on = true;
 
 // number of clock cycles to delay glitch
-uint delay_length = 0;
-uint delay_length2 = 0;
+uint delay_length = 100;
 // number of clock cycles to pulse glitch
-uint glitch_length = 0;
-uint glitch_length2 = 0;
+uint glitch_length = 100;
 // avoids loading PIO assembly multiple times
 static uint offset = 0xFFFFFFFF;
 
@@ -82,10 +42,6 @@ void irq1_callback() {
     waiting_for_pulse = false;
     // glitching finished, turn off LED
     led_on = false;
-    delay_length = 0;
-    delay_length2 = 0;
-    glitch_length = 0;
-    glitch_length2 = 0;
     gpio_put(led_pin, false);
 }
 
@@ -108,28 +64,13 @@ void toggle_led() {
     gpio_put(led_pin, led_on);
 }
 
-void power_cycle() {
-    gpio_put(reset_output_pin, true);
-    gpio_put(pwr_output_pin, false);
-    sleep_ms(100);
-    gpio_put(reset_output_pin, false);
-    gpio_put(pwr_output_pin, true);
-    sleep_ms(10);
-}
-
 // u32 command, i.e. read 4 more bytes
 void set_glitch_pulse() {
     uint32_t glitch_len = 0;
     fread(&glitch_len, sizeof(char), 4, stdin);
     glitch_len = Reverse32(glitch_len);
-    DEBUG_PRINT("Got pulse length: %lu\n", glitch_len); 
-    #if SINGLE_GLITCH
+    //printf("Got pulse length: %lu\n", glitch_len); 
     glitch_length = glitch_len;
-    glitch_length2 = 0;
-    #else
-    if (glitch_length > 0) glitch_length2 = glitch_len;
-    else glitch_length = glitch_len;
-    #endif
 }
 
 // u32 command, i.e. read 4 more bytes
@@ -137,31 +78,12 @@ void set_delay() {
     uint32_t delay_len = 0;
     fread(&delay_len, sizeof(char), 4, stdin);
     delay_len = Reverse32(delay_len);
-    DEBUG_PRINT("Got delay length: %lu\n", delay_len); 
-    #if SINGLE_GLITCH
+    //printf("Got delay length: %lu\n", delay_len); 
     delay_length = delay_len;
-    delay_length2 = 0;
-    #else
-    if (delay_length > 0) delay_length2 = delay_len;
-    else delay_length = delay_len;
-    #endif
 }
 
 // u8 command; just go ahead and arm the PIO
 void glitch() {
-    // check that parameters have been set
-    #if SINGLE_GLITCH
-    if (delay_length < 8 || glitch_length < 2) {
-        DEBUG_PRINT("Delay or Glitch Length not set.\n");
-        return;
-    }
-    #else
-    if (delay_length < 8 || delay_length2 < 8 || glitch_length < 2 || glitch_length2 < 2) {
-        DEBUG_PRINT("Delay or Glitch Length not set.\n");
-        return;
-    }
-    #endif
-
     // glitching starting, turn on LED
     led_on = true;
     gpio_put(led_pin, true);
@@ -173,30 +95,15 @@ void glitch() {
     // Add PIO program to PIO instruction memory. SDK will find location and
     // return with the memory offset of the program.
     if (offset == 0xFFFFFFFF) { // Only load the program once
-        #if SINGLE_GLITCH
-            offset = pio_add_program(pio, &glitch1_program);
-        #else
-            offset = pio_add_program(pio, &glitch2_program);
-        #endif
+        offset = pio_add_program(pio, &square_program);
     }
 
     // Initialize the program using the helper function in our .pio file
-    #if SINGLE_GLITCH
-        init_single_glitch(pio, sm, offset, trigger_input_pin, trigger_output_pin);
-    #else
-        init_double_glitch(pio, sm, offset, trigger_input_pin, trigger_output_pin);
-    #endif
+    square_program_init(pio, sm, offset, trigger_input_pin, trigger_output_pin);
 
     // Pass the glitch length through FIFO; deduct 2 lost cycles
-    #if SINGLE_GLITCH
     pio_sm_put_blocking(pio, sm, delay_length-8);
     pio_sm_put_blocking(pio, sm, glitch_length-2);
-    #else
-    pio_sm_put_blocking(pio, sm, delay_length-8);
-    pio_sm_put_blocking(pio, sm, glitch_length-2);
-    pio_sm_put_blocking(pio, sm, delay_length2-8);
-    pio_sm_put_blocking(pio, sm, glitch_length2-2);
-    #endif
 
     // Unclaim state machine after the run
     pio_sm_unclaim(pio, sm);
@@ -208,7 +115,7 @@ uint8_t get_status() {
     // pin in charged = 0b0010
     // timeout active = 0b0100
     // hvp internal   = 0b1000
-    DEBUG_PRINT("Waiting for pulse? %d\n", waiting_for_pulse);
+    //printf("Waiting for pulse? %d\n", waiting_for_pulse);
     if (waiting_for_pulse) {
         return 2;
     }
@@ -222,15 +129,12 @@ int read_cmd() {
     while(1) {
         c = getchar();
         if (c == 0) continue;
-        DEBUG_PRINT("Got char: %d\n", c);
+        //printf("Got char: %d\n", c);
         switch(c) {
             case 64:
                 reset_glitcher();
             case 65:
                 toggle_led();
-                break;
-            case 66:
-                power_cycle();
                 break;
             case 67:
                 set_glitch_pulse();
@@ -250,19 +154,15 @@ int read_cmd() {
 
 int main() {
     gpio_init(led_pin);
-    gpio_init(pwr_output_pin);
     gpio_init(reset_output_pin);
     gpio_set_dir(led_pin, GPIO_OUT);
-    gpio_set_dir(pwr_output_pin, GPIO_OUT);
     gpio_set_dir(reset_output_pin, GPIO_OUT);
-    gpio_put(reset_output_pin, false);
-    gpio_put(pwr_output_pin, true);
+    gpio_put(reset_output_pin, true);
 
     stdio_init_all();
     while (!tud_cdc_connected()) { sleep_ms(100);  }
-    DEBUG_PRINT("USB connected.\n");
+    //printf("USB connected.\n");
 
-    // Uncomment for overclocking to 400MHz
     //oc(2); 
 
     irq_set_exclusive_handler(PIO0_IRQ_0, irq0_callback);
@@ -272,6 +172,6 @@ int main() {
     pio0->inte0 = PIO_IRQ0_INTE_SM0_BITS;
     pio0->inte1 = PIO_IRQ0_INTE_SM1_BITS;
 
-    DEBUG_PRINT("Starting program now...\n");
+    //printf("Starting program now...\n");
     read_cmd();
 }

@@ -30,7 +30,7 @@ Fully compatible with FPGA-based [chipfail-glitcher](https://github.com/unixb0y/
 ```
 Soft Reset         = b"@" = 64 = 0x40 ✓ 
 Toggle LED         = b"A" = 65 = 0x41 ✓ 
-Power Cycle        = b"B" = 66 = 0x42  
+Power Cycle        = b"B" = 66 = 0x42 ✓ 
 Set Pulse Width    = b"C" = 67 = 0x43 ✓ 
 Set Delay          = b"D" = 68 = 0x44 ✓  
 Set Power Pulse    = b"E" = 69 = 0x45  
